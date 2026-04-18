@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2026 Crystal Dreams - Birthday Edition</title>
+    <title>2026 Crystal Dreams - Memory Edition</title>
     <style>
         :root {
             --neon-cyan: #00f3ff;
             --neon-purple: #bc00ff;
-            --glass-bg: rgba(10, 20, 40, 0.85);
+            --glass-bg: rgba(10, 20, 40, 0.9);
         }
 
         body {
@@ -118,6 +118,67 @@
             transition: opacity 1s;
         }
 
+        #photo-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            width: 80%;
+            max-width: 600px;
+            background: var(--glass-bg);
+            border: 2px solid var(--neon-cyan);
+            border-radius: 20px;
+            padding: 20px;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-align: center;
+            pointer-events: auto;
+            backdrop-filter: blur(20px);
+        }
+
+        #photo-modal.active {
+            opacity: 1;
+            visibility: visible;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        #photo-modal img {
+            max-width: 100%;
+            max-height: 70vh;
+            border-radius: 10px;
+            box-shadow: 0 0 30px rgba(0, 243, 255, 0.3);
+        }
+
+        .close-modal {
+            position: absolute;
+            top: -15px;
+            right: -15px;
+            width: 30px;
+            height: 30px;
+            background: var(--neon-cyan);
+            color: black;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        #tip-box {
+            position: absolute;
+            top: 100px;
+            left: 20px;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-left: 3px solid var(--neon-cyan);
+            font-size: 12px;
+            color: #aaa;
+            pointer-events: none;
+        }
+
         #cam-preview {
             position: absolute;
             bottom: 20px;
@@ -150,28 +211,36 @@
     <div id="loading-screen">
         <h1 style="color:var(--neon-cyan); letter-spacing: 5px;">CRYSTAL DREAMS 2026</h1>
         <div class="loader-bar"><div id="progress" class="loader-progress"></div></div>
-        <button id="start-btn" class="btn" style="display:none">生日快乐</button>
+        <button id="start-btn" class="btn" style="display:none">开启水晶之礼</button>
+    </div>
+
+    <div id="photo-modal">
+        <div class="close-modal" id="close-modal">×</div>
+        <img id="modal-img" src="" alt="Memory">
+        <p style="margin-top:15px; color:var(--neon-cyan); font-style: italic;">时光记忆碎片</p>
     </div>
 
     <div class="overlay">
+        <div id="tip-box">
+            点击“上传回忆”添加照片<br>
+            星云形态下，点击漂浮的照片可放大查看
+        </div>
         <div class="header">
             <div class="left">
                 <button id="fullscreen-btn" class="btn">Full Screen</button>
             </div>
             <div class="right">
-                <input type="file" id="media-upload" accept="image/*,video/*" style="display:none">
-                <button class="btn" onclick="document.getElementById('media-upload').click()">上传回忆</button>
+                <input type="file" id="media-upload" accept="image/*" multiple style="display:none">
+                <button class="btn" id="upload-btn">上传回忆</button>
             </div>
         </div>
 
         <div id="status-display">INITIALIZING...</div>
 
-        <!--
         <div class="footer">
             <button id="mode-gather" class="btn">聚合形态 (Fist)</button>
             <button id="mode-scatter" class="btn">水晶星云 (Open)</button>
         </div>
-        -->
 
         <div id="cam-preview">
             <video id="video-source" autoplay playsinline></video>
@@ -210,9 +279,12 @@
 
         let scene, camera, renderer, composer, controls;
         let countdownParticles, crystalGroup, surfaceParticles, textParticles;
+        let memoryGroup; // 存储照片碎片
         let state = 'LOADING'; 
         let currentMode = 'GATHER'; 
         let clock = new THREE.Clock();
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
         
         let handLandmarker;
         let video = document.getElementById('video-source');
@@ -226,6 +298,14 @@
             await loadAssets();
             document.getElementById('start-btn').style.display = 'block';
             document.getElementById('start-btn').onclick = startExperience;
+            
+            // UI交互
+            document.getElementById('upload-btn').onclick = () => document.getElementById('media-upload').click();
+            document.getElementById('media-upload').onchange = handleUpload;
+            document.getElementById('close-modal').onclick = closeModal;
+            document.getElementById('mode-gather').onclick = () => switchMode('GATHER');
+            document.getElementById('mode-scatter').onclick = () => switchMode('SCATTER');
+            window.addEventListener('mousedown', onDocumentMouseDown);
         }
 
         function setupScene() {
@@ -288,13 +368,12 @@
             return points;
         }
 
-        // 主场景文字生成
         function getPointsFromText(text, size = 1.0) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = 512; canvas.height = 128;
             ctx.fillStyle = 'white';
-            ctx.font = `bold 60px Arial`; // 降低字体大小提高文字清晰度
+            ctx.font = `bold 60px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(text, 256, 64);
@@ -373,6 +452,8 @@
             state = 'MAIN';
             crystalGroup = new THREE.Group();
             scene.add(crystalGroup);
+            memoryGroup = new THREE.Group();
+            scene.add(memoryGroup);
             controls.autoRotate = true;
 
             const geometries = [new THREE.OctahedronGeometry(0.5), new THREE.IcosahedronGeometry(0.4)];
@@ -410,9 +491,108 @@
             initHandTracking();
         }
 
+        // 处理文件上传
+        function handleUpload(event) {
+            const files = event.target.files;
+            if (!files.length) return;
+
+            Array.from(files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    createMemoryFragment(e.target.result);
+                };
+                reader.readAsDataURL(file);
+            });
+            
+            document.getElementById('status-display').innerText = `已导入 ${files.length} 个记忆碎片`;
+            setTimeout(() => { if(state === 'MAIN') document.getElementById('status-display').innerText = ""; }, 2000);
+        }
+
+        function createMemoryFragment(imgSrc) {
+            const loader = new THREE.TextureLoader();
+            loader.load(imgSrc, (texture) => {
+                // 水晶边框材质 + 照片材质
+                const geo = new THREE.BoxGeometry(2, 2, 0.2);
+                const mats = [
+                    new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
+                    new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
+                    new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
+                    new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
+                    new THREE.MeshStandardMaterial({ map: texture }), // 正面
+                    new THREE.MeshStandardMaterial({ map: texture }), // 反面
+                ];
+
+                const mesh = new THREE.Mesh(geo, mats);
+                mesh.userData.isMemory = true;
+                mesh.userData.imgSrc = imgSrc;
+                
+                // 初始位置在蛋糕中心
+                mesh.position.set(0, 5, 0);
+                mesh.scale.set(0.1, 0.1, 0.1);
+                
+                // 设置星云模式下的目标位置
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 10 + Math.random() * 15;
+                const y = (Math.random() - 0.5) * 20;
+                mesh.userData.scatterPos = new THREE.Vector3(Math.cos(angle) * dist, y, Math.sin(angle) * dist);
+                
+                // 设置聚合模式下的目标位置（藏在蛋糕深处或作为装饰）
+                mesh.userData.gatherPos = new THREE.Vector3((Math.random()-0.5)*4, 1 + Math.random()*4, (Math.random()-0.5)*4);
+                
+                memoryGroup.add(mesh);
+
+                // 动画入场
+                const target = currentMode === 'GATHER' ? mesh.userData.gatherPos : mesh.userData.scatterPos;
+                const targetScale = currentMode === 'GATHER' ? 0.3 : 1.5;
+                
+                new TWEEN.Tween(mesh.position).to({ x: target.x, y: target.y, z: target.z }, 2000).easing(TWEEN.Easing.Elastic.Out).start();
+                new TWEEN.Tween(mesh.scale).to({ x: targetScale, y: targetScale, z: targetScale }, 2000).easing(TWEEN.Easing.Elastic.Out).start();
+            });
+        }
+
+        function onDocumentMouseDown(event) {
+            if (currentMode !== 'SCATTER') return;
+            
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(memoryGroup.children);
+            
+            if (intersects.length > 0) {
+                const clicked = intersects[0].object;
+                if (clicked.userData.isMemory) {
+                    showPhotoModal(clicked.userData.imgSrc, clicked.position);
+                }
+            }
+        }
+
+        function showPhotoModal(src, pos) {
+            const modal = document.getElementById('photo-modal');
+            const img = document.getElementById('modal-img');
+            img.src = src;
+            modal.classList.add('active');
+            
+            // 相机平滑聚焦
+            new TWEEN.Tween(camera.position)
+                .to({ x: pos.x * 1.5, y: pos.y, z: pos.z * 1.5 }, 1000)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .start();
+            
+            new TWEEN.Tween(controls.target)
+                .to({ x: pos.x, y: pos.y, z: pos.z }, 1000)
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .start();
+        }
+
+        function closeModal() {
+            document.getElementById('photo-modal').classList.remove('active');
+            // 回归视角
+            new TWEEN.Tween(controls.target).to({ x: 0, y: 0, z: 0 }, 1000).start();
+        }
+
         function createParticleText() {
-            // 文字改为 HAPPY BIRTHDAY，尺寸减小为 1.6
-            const textData = getPointsFromText("HAPPY BIRTHDAY", 2.6);
+            const textData = getPointsFromText("HAPPY BIRTHDAY", 1.6);
             const count = CONFIG.textParticleCount;
             const geo = new THREE.BufferGeometry();
             const pos = new Float32Array(count * 3);
@@ -433,11 +613,7 @@
             geo.setAttribute('targetPos', new THREE.BufferAttribute(targets, 3));
             
             const mat = new THREE.PointsMaterial({
-                size: 0.08,
-                color: 0x00f3ff,
-                transparent: true,
-                opacity: 0,
-                blending: THREE.AdditiveBlending
+                size: 0.08, color: 0x00f3ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending
             });
             
             textParticles = new THREE.Points(geo, mat);
@@ -455,20 +631,15 @@
                 const rBase = isBottom ? 6.2 : 3.8;
                 const r = rBase + (Math.random() - 0.5) * 0.4;
                 const yRange = isBottom ? [-3, 0.5] : [0.5, 4.5];
-                
                 const angle = Math.random() * Math.PI * 2;
                 const isTopSurface = Math.random() > 0.65;
                 
                 let x, y, z;
                 if(isTopSurface) {
                     const rr = Math.sqrt(Math.random()) * r;
-                    x = Math.cos(angle) * rr;
-                    y = yRange[1] + (Math.random() - 0.5) * 0.2;
-                    z = Math.sin(angle) * rr;
+                    x = Math.cos(angle) * rr; y = yRange[1] + (Math.random() - 0.5) * 0.2; z = Math.sin(angle) * rr;
                 } else {
-                    x = Math.cos(angle) * r;
-                    y = yRange[0] + Math.random() * (yRange[1] - yRange[0]);
-                    z = Math.sin(angle) * r;
+                    x = Math.cos(angle) * r; y = yRange[0] + Math.random() * (yRange[1] - yRange[0]); z = Math.sin(angle) * r;
                 }
                 
                 targets[i*3] = x; targets[i*3+1] = y; targets[i*3+2] = z;
@@ -481,12 +652,7 @@
             geo.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
             
             const mat = new THREE.PointsMaterial({
-                size: 0.06,
-                color: CONFIG.primaryColor,
-                transparent: true,
-                opacity: 0,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
+                size: 0.06, color: CONFIG.primaryColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false
             });
             
             surfaceParticles = new THREE.Points(geo, mat);
@@ -495,36 +661,39 @@
 
         function switchMode(mode) {
             currentMode = mode;
-            document.getElementById('status-display').innerText = mode === 'GATHER' ? "" : "";
+            document.getElementById('status-display').innerText = mode === 'GATHER' ? "形态：水晶生日蛋糕" : "形态：水晶星云";
             
             new TWEEN.Tween(surfaceParticles.material).to(mode === 'GATHER' ? {opacity: 1.0} : {opacity: 0}, 1200).start();
             new TWEEN.Tween(textParticles.material).to(mode === 'GATHER' ? {opacity: 1.0} : {opacity: 0}, 1200).start();
 
-            const sPos = surfaceParticles.geometry.attributes.position.array;
-            const sTarget = surfaceParticles.geometry.attributes.targetPos.array;
-            for(let i=0; i<CONFIG.surfaceParticleCount; i++) {
-                const baseIdx = i * 3;
-                const targetX = mode === 'GATHER' ? sTarget[baseIdx] : (Math.random()-0.5)*100;
-                const targetY = mode === 'GATHER' ? sTarget[baseIdx+1] : (Math.random()-0.5)*100;
-                const targetZ = mode === 'GATHER' ? sTarget[baseIdx+2] : (Math.random()-0.5)*100;
-                new TWEEN.Tween(sPos).to({ [baseIdx]: targetX, [baseIdx+1]: targetY, [baseIdx+2]: targetZ }, 1500 + Math.random()*800).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => surfaceParticles.geometry.attributes.position.needsUpdate = true).start();
-            }
+            // 移动主要粒子
+            [surfaceParticles, textParticles].forEach(pSystem => {
+                const pos = pSystem.geometry.attributes.position.array;
+                const targets = pSystem.geometry.attributes.targetPos.array;
+                const count = pos.length / 3;
+                for(let i=0; i<count; i++) {
+                    const bi = i * 3;
+                    const tx = mode === 'GATHER' ? targets[bi] : (Math.random()-0.5)*120;
+                    const ty = mode === 'GATHER' ? targets[bi+1] : (Math.random()-0.5)*120;
+                    const tz = mode === 'GATHER' ? targets[bi+2] : (Math.random()-0.5)*120;
+                    new TWEEN.Tween(pos).to({ [bi]: tx, [bi+1]: ty, [bi+2]: tz }, 1500 + Math.random()*800).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => pSystem.geometry.attributes.position.needsUpdate = true).start();
+                }
+            });
 
-            const tPos = textParticles.geometry.attributes.position.array;
-            const tTarget = textParticles.geometry.attributes.targetPos.array;
-            for(let i=0; i<CONFIG.textParticleCount; i++) {
-                const bi = i * 3;
-                const tx = mode === 'GATHER' ? tTarget[bi] : (Math.random()-0.5)*120;
-                const ty = mode === 'GATHER' ? tTarget[bi+1] : (Math.random()-0.5)*120;
-                const tz = mode === 'GATHER' ? tTarget[bi+2] : (Math.random()-0.5)*120;
-                new TWEEN.Tween(tPos).to({ [bi]: tx, [bi+1]: ty, [bi+2]: tz }, 1800 + Math.random()*500).easing(TWEEN.Easing.Exponential.Out).onUpdate(() => textParticles.geometry.attributes.position.needsUpdate = true).start();
-            }
-
+            // 移动基础结晶
             crystalGroup.children.forEach(mesh => {
                 const targetPos = mode === 'GATHER' ? mesh.userData.targetPos : mesh.userData.scatterPos;
                 const targetScale = mode === 'GATHER' ? 0.25 : 1.0;
                 new TWEEN.Tween(mesh.position).to({ x: targetPos.x, y: targetPos.y, z: targetPos.z }, 1500).easing(TWEEN.Easing.Quadratic.InOut).start();
                 new TWEEN.Tween(mesh.scale).to({ x: targetScale, y: targetScale, z: targetScale }, 1200).easing(TWEEN.Easing.Back.Out).start();
+            });
+
+            // 移动记忆碎片
+            memoryGroup.children.forEach(mesh => {
+                const targetPos = mode === 'GATHER' ? mesh.userData.gatherPos : mesh.userData.scatterPos;
+                const targetScale = mode === 'GATHER' ? 0.3 : 1.5;
+                new TWEEN.Tween(mesh.position).to({ x: targetPos.x, y: targetPos.y, z: targetPos.z }, 1800).easing(TWEEN.Easing.Exponential.Out).start();
+                new TWEEN.Tween(mesh.scale).to({ x: targetScale, y: targetScale, z: targetScale }, 1500).easing(TWEEN.Easing.Elastic.Out).start();
             });
         }
 
@@ -581,6 +750,7 @@
             controls.update();
 
             if (state === 'MAIN') {
+                // 文字粒子抖动
                 if (textParticles && currentMode === 'GATHER') {
                     const pos = textParticles.geometry.attributes.position.array;
                     for(let i=0; i<CONFIG.textParticleCount; i++) {
@@ -589,32 +759,24 @@
                         pos[i*3+2] += (Math.random()-0.5)*0.01;
                     }
                     textParticles.geometry.attributes.position.needsUpdate = true;
-                    textParticles.material.color.setHSL(0.5, 1.0, 0.5 + Math.sin(time*5)*0.1);
                 }
 
-                if (surfaceParticles && currentMode === 'GATHER') {
-                    const pos = surfaceParticles.geometry.attributes.position.array;
-                    const phases = surfaceParticles.geometry.attributes.phase.array;
-                    for(let i=0; i<CONFIG.surfaceParticleCount; i++) {
-                        const bi = i * 3;
-                        pos[bi] += Math.sin(time + phases[i]) * 0.005;
-                        pos[bi+1] += Math.cos(time * 0.8 + phases[i]) * 0.005;
-                        pos[bi+2] += Math.sin(time * 1.2 + phases[i]) * 0.005;
+                // 记忆碎片漂浮
+                memoryGroup.children.forEach((mesh, idx) => {
+                    if (currentMode === 'SCATTER') {
+                        mesh.position.y += Math.sin(time + idx) * 0.01;
+                        mesh.rotation.y += 0.005;
+                    } else {
+                        mesh.rotation.y += 0.01;
                     }
-                    surfaceParticles.geometry.attributes.position.needsUpdate = true;
-                    surfaceParticles.material.color.setHSL(0.52 + Math.sin(time*0.3)*0.08, 0.9, 0.65);
-                }
+                });
 
                 crystalGroup.children.forEach((mesh) => {
                     if (currentMode === 'GATHER') {
                         const pulse = Math.sin(time * 3 + mesh.userData.pulseOffset) * 0.5 + 0.5;
-                        mesh.material.opacity = 0.5 + pulse * 0.5;
                         mesh.material.emissiveIntensity = 0.6 + pulse * 2.0;
                     } else {
-                        mesh.material.opacity = 1.0;
-                        mesh.material.emissiveIntensity = 0.3;
-                        mesh.rotation.x += 0.008;
-                        mesh.rotation.y += 0.012;
+                        mesh.rotation.x += 0.008; mesh.rotation.y += 0.012;
                     }
                 });
             }
