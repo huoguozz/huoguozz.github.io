@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Love</title>
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: black;
+}
+.box {
+  position: absolute;
+  width: 150px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 6px;
+  color: #000;
+}
+</style>
+</head>
+<body>
+
+<script>
+const textList = ["김선희 좋아해~"];
+const colors = ["pink","lightblue","lightgreen","skyblue","lemonchiffon","hotpink"];
+
+function heartPoints(n, w, h){
+  let p = [];
+  for(let i=0;i<n;i++){
+    let th = i/n * 2*Math.PI;
+    let x = 16*Math.pow(Math.sin(th),3);
+    let y = 13*Math.cos(th)-5*Math.cos(2*th)-2*Math.cos(3*th)-Math.cos(4*th);
+    let sx = Math.floor(w/2 + x*20 - 50);
+    let sy = Math.floor(h/2 - y*20 - 80);
+
+    sx = Math.max(0, Math.min(sx, w-150));
+    sy = Math.max(0, Math.min(sy, h-40));
+
+    p.push([sx, sy]);
+  }
+  return p;
+}
+
+function createBox(x,y,text=null){
+  let d = document.createElement("div");
+  d.className = "box";
+  d.style.left = x+"px";
+  d.style.top = y+"px";
+  d.style.background = colors[Math.floor(Math.random()*colors.length)];
+  d.innerText = text || textList[Math.floor(Math.random()*textList.length)];
+  document.body.appendChild(d);
+  return d;
+}
+
+async function run(){
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+
+  // ❤️ 第一阶段：画爱心
+  let pts = heartPoints(100, w, h);
+  let heartBoxes = [];
+
+  for(let i=0;i<pts.length;i++){
+    let [x,y] = pts[i];
+    let box = createBox(x,y, i===pts.length-1 ? "김선희 좋아해~" : null);
+    heartBoxes.push(box);
+    await new Promise(r=>setTimeout(r,10));
+  }
+
+  await new Promise(r=>setTimeout(r,1000));
+  heartBoxes.forEach(b=>b.remove());
+
+  // 💥 第二阶段：随机弹 300 个
+  for(let i=0;i<300;i++){
+    let x = Math.random()*(w-150);
+    let y = Math.random()*(h-40);
+    createBox(x,y);
+    await new Promise(r=>setTimeout(r,5));
+  }
+}
+
+run();
+</script>
+
+</body>
+</html>
