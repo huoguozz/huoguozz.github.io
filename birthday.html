@@ -150,7 +150,7 @@
     <div id="loading-screen">
         <h1 style="color:var(--neon-cyan); letter-spacing: 5px;">CRYSTAL DREAMS 2026</h1>
         <div class="loader-bar"><div id="progress" class="loader-progress"></div></div>
-        <button id="start-btn" class="btn" style="display:none">开启水晶之礼</button>
+        <button id="start-btn" class="btn" style="display:none">生日快乐</button>
     </div>
 
     <div class="overlay">
@@ -166,10 +166,12 @@
 
         <div id="status-display">INITIALIZING...</div>
 
+        <!--
         <div class="footer">
             <button id="mode-gather" class="btn">聚合形态 (Fist)</button>
             <button id="mode-scatter" class="btn">水晶星云 (Open)</button>
         </div>
+        -->
 
         <div id="cam-preview">
             <video id="video-source" autoplay playsinline></video>
@@ -410,7 +412,7 @@
 
         function createParticleText() {
             // 文字改为 HAPPY BIRTHDAY，尺寸减小为 1.6
-            const textData = getPointsFromText("HAPPY BIRTHDAY", 1.6);
+            const textData = getPointsFromText("HAPPY BIRTHDAY", 2.6);
             const count = CONFIG.textParticleCount;
             const geo = new THREE.BufferGeometry();
             const pos = new Float32Array(count * 3);
@@ -493,7 +495,7 @@
 
         function switchMode(mode) {
             currentMode = mode;
-            document.getElementById('status-display').innerText = mode === 'GATHER' ? "形态：水晶生日蛋糕" : "形态：水晶星云";
+            document.getElementById('status-display').innerText = mode === 'GATHER' ? "" : "";
             
             new TWEEN.Tween(surfaceParticles.material).to(mode === 'GATHER' ? {opacity: 1.0} : {opacity: 0}, 1200).start();
             new TWEEN.Tween(textParticles.material).to(mode === 'GATHER' ? {opacity: 1.0} : {opacity: 0}, 1200).start();
