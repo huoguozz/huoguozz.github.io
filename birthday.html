@@ -208,7 +208,7 @@
     </style>
 </head>
 <body>
-
+	<audio id="bgm" src="music.mp3" preload="auto"></audio>
     <div id="loading-screen">
         <h1 style="color:var(--neon-cyan); letter-spacing: 5px;">2026 / 04 / 22</h1>
         <div class="loader-bar"><div id="progress" class="loader-progress"></div></div>
@@ -255,6 +255,9 @@
     </script>
 
     <script type="module">
+		let beat = 0;
+		let audio, audioCtx, analyser, dataArray;
+		let audioStarted = false;
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -315,6 +318,7 @@
             } catch (err) {
                 console.error("Initialization error:", err);
             }
+			
         }
 
         function setupScene() {
@@ -455,8 +459,17 @@
                 await new Promise(r => setTimeout(r, 600)); 
                 if(i > 1) await explodeCountdownParticles();
             }
-            
-            scene.remove(countdownParticles);
+			await explodeCountdownParticles();
+            // 淡出
+			new TWEEN.Tween(countdownParticles.material)
+				.to({ opacity: 0 }, 600)
+				.onComplete(() => {
+					scene.remove(countdownParticles);
+				})
+				.start();
+
+			// 稍微等一下再进入爱心
+			await new Promise(r => setTimeout(r, 500));
 
 			// ===== ❤️ 爱心阶段 =====
 			const heart = createMorphParticles(getHeartPoints());
@@ -481,23 +494,26 @@
 			nameMesh.material.opacity = 0;
 
 			await animateMorph(textMesh);
+			await animateMorph(textMesh);
+
+			// 停留一会
+			await new Promise(r => setTimeout(r, 1500));
 
 			// 淡出
 			new TWEEN.Tween(textMesh.material)
-				.to({ opacity: 0 }, 1000)
+				.to({ opacity: 0 }, 800)
 				.onComplete(() => {
-					scene.remove(heart);
-					scene.remove(nameMesh);
 					scene.remove(textMesh);
-					warpSpeedTransition();
+					warpSpeedTransition(); // 🚀 进入主场景
 				})
 				.start();
+			
 		}
 
         function explodeCountdownParticles() {
             return new Promise(resolve => {
                 const positions = countdownParticles.geometry.attributes.position.array;
-                const duration = 600;
+                const duration = 400 + beat * 400;
                 for (let i = 0; i < CONFIG.particleCount; i++) {
                     new TWEEN.Tween(positions)
                         .to({ 
@@ -682,6 +698,11 @@
 
             switchMode('GATHER');
             initHandTracking();
+			video.addEventListener("loadeddata", () => {
+				handCanvas.width = video.videoWidth;
+				handCanvas.height = video.videoHeight;
+				predictWebcam();
+			});
         }
 
         function handleUpload(event) {
@@ -869,14 +890,22 @@
             }
         }
 
-        function startExperience() {
-            document.getElementById('loading-screen').style.opacity = '0';
-            setTimeout(() => { 
-                const loadingScreen = document.getElementById('loading-screen');
-                if (loadingScreen) loadingScreen.remove(); 
-                animateCountdown(); 
-            }, 1000);
-        }
+		function startExperience() {
+			if (!audioStarted) {
+				initAudio();
+				audioCtx.resume();
+				audio.play();
+				audioStarted = true;
+			}
+
+			document.getElementById('loading-screen').style.opacity = '0';
+
+			setTimeout(() => { 
+				const loadingScreen = document.getElementById('loading-screen');
+				if (loadingScreen) loadingScreen.remove(); 
+				animateCountdown(); 
+			}, 1000);
+		}
 
         function toggleFullScreen() {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
@@ -919,22 +948,47 @@
             camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
         }
+		function initAudio() {
+			audio = document.getElementById('bgm');
 
+			audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+			const source = audioCtx.createMediaElementSource(audio);
+
+			analyser = audioCtx.createAnalyser();
+			analyser.fftSize = 256;
+
+			source.connect(analyser);
+			analyser.connect(audioCtx.destination);
+
+			dataArray = new Uint8Array(analyser.frequencyBinCount);
+		}		
         function animate() {
             requestAnimationFrame(animate);
             
+
+			if (analyser) {
+				analyser.getByteFrequencyData(dataArray);
+
+				let sum = 0;
+				for (let i = 0; i < dataArray.length; i++) {
+					sum += dataArray[i];
+				}
+				beat = sum / dataArray.length / 255; // 0~1
+			}
             // 关键修复：确保所有核心对象都已定义
             if (!scene || !camera || !renderer || !composer || !controls) return;
             
             const time = clock.getElapsedTime();
             TWEEN.update();
             controls.update();
-
+			if (beat > 0.6 && Math.random() > 0.85) {
+				createExplosionFlash();
+			}
             if (starField) {
 			const starPos = starField.geometry.attributes.position.array;
 
 			for (let i = 0; i < starPos.length; i += 3) {
-				starPos[i + 2] += 0.05; // 往前流动
+				starPos[i + 2] += 0.05 + beat * 0.5; // 往前流动
     
 				if (starPos[i + 2] > 600) {
 					starPos[i + 2] = -600;
@@ -986,7 +1040,7 @@
                     crystalGroup.children.forEach((mesh) => {
                         if (currentMode === 'GATHER') {
                             const pulse = Math.sin(time * 3 + mesh.userData.pulseOffset) * 0.5 + 0.5;
-                            mesh.material.emissiveIntensity = 0.6 + pulse * 2.0;
+                            mesh.material.emissiveIntensity = 0.6 + pulse * 2.0 + beat * 3;;
                         } else { 
                             mesh.rotation.x += 0.01; mesh.rotation.y += 0.015; 
                         }
@@ -997,6 +1051,7 @@
         }
 
         // 启动程序
+		
         init();
         animate();
     </script>
