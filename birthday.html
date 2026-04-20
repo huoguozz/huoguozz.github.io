@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2026 Crystal Dreams - Memory Edition</title>
+    <title>2026 Crystal Dreams - Birthday Edition</title>
     <style>
         :root {
             --neon-cyan: #00f3ff;
@@ -16,7 +16,7 @@
             padding: 0;
             background: #000;
             color: white;
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
             overflow: hidden;
             user-select: none;
         }
@@ -112,10 +112,11 @@
             font-weight: bold;
             color: var(--neon-cyan);
             text-shadow: 0 0 15px var(--neon-cyan);
-            font-size: 24px;
+            font-size: 28px;
             text-align: center;
             opacity: 0;
             transition: opacity 1s;
+            white-space: nowrap;
         }
 
         #photo-modal {
@@ -167,18 +168,6 @@
             font-weight: bold;
         }
 
-        #tip-box {
-            position: absolute;
-            top: 100px;
-            left: 20px;
-            background: rgba(0,0,0,0.5);
-            padding: 10px;
-            border-left: 3px solid var(--neon-cyan);
-            font-size: 12px;
-            color: #aaa;
-            pointer-events: none;
-        }
-
         #cam-preview {
             position: absolute;
             bottom: 20px;
@@ -209,37 +198,32 @@
 <body>
 
     <div id="loading-screen">
-        <h1 style="color:var(--neon-cyan); letter-spacing: 5px;">CRYSTAL DREAMS 2026</h1>
+        <h1 style="color:var(--neon-cyan); letter-spacing: 5px;">2026/04/22</h1>
         <div class="loader-bar"><div id="progress" class="loader-progress"></div></div>
-        <button id="start-btn" class="btn" style="display:none">开启水晶之礼</button>
+        <button id="start-btn" class="btn" style="display:none">开启礼物</button>
     </div>
 
     <div id="photo-modal">
         <div class="close-modal" id="close-modal">×</div>
         <img id="modal-img" src="" alt="Memory">
         <p style="margin-top:15px; color:var(--neon-cyan); font-style: italic;">时光记忆碎片</p>
+        <button id="delete-btn" class="btn" style="margin-top: 10px; border-color: #ff4d4d; color: #ff4d4d;">永久删除</button>
     </div>
 
     <div class="overlay">
-        <div id="tip-box">
-            点击“上传回忆”添加照片<br>
-            星云形态下，点击漂浮的照片可放大查看
-        </div>
         <div class="header">
-            <div class="left">
-                <button id="fullscreen-btn" class="btn">Full Screen</button>
-            </div>
+            <button id="fullscreen-btn" class="btn">全屏</button>
             <div class="right">
                 <input type="file" id="media-upload" accept="image/*" multiple style="display:none">
                 <button class="btn" id="upload-btn">上传回忆</button>
             </div>
         </div>
 
-        <div id="status-display">INITIALIZING...</div>
+        <div id="status-display">系统初始化...</div>
 
         <div class="footer">
-            <button id="mode-gather" class="btn">聚合形态 (Fist)</button>
-            <button id="mode-scatter" class="btn">水晶星云 (Open)</button>
+            <button id="mode-gather" class="btn">聚合形态</button>
+            <button id="mode-scatter" class="btn">星云形态</button>
         </div>
 
         <div id="cam-preview">
@@ -267,21 +251,69 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import TWEEN from 'https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@23.1.1/dist/tween.esm.js';
 
+        // --- IndexedDB 存储逻辑 ---
+        const DB_NAME = "MemoryCrystalDB";
+        const STORE_NAME = "Photos";
+        
+        async function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = e => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
+                    }
+                };
+                request.onsuccess = e => resolve(e.target.result);
+                request.onerror = e => reject(e.target.error);
+            });
+        }
+
+        async function savePhotoToDB(base64Data) {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, "readwrite");
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.add({ data: base64Data, timestamp: Date.now() });
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function getAllPhotosFromDB() {
+            const db = await openDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(STORE_NAME, "readonly");
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result);
+            });
+        }
+
+        async function deletePhotoFromDB(id) {
+            const db = await openDB();
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            tx.objectStore(STORE_NAME).delete(id);
+        }
+
+        // --- 核心配置 ---
         const CONFIG = {
-            particleCount: 12000, 
+            particleCount: 8000, 
             crystalCount: 500,
-            textParticleCount: 4000,
-            surfaceParticleCount: 8000,
+            textParticleCount: 6000,
+            surfaceParticleCount: 12000, 
+            starCount: 20000, 
             primaryColor: 0x00f3ff,
             secondaryColor: 0x7000ff,
             bloomStrength: 1.8,
         };
 
         let scene, camera, renderer, composer, controls;
-        let countdownParticles, crystalGroup, surfaceParticles, textParticles;
-        let memoryGroup; // 存储照片碎片
+        let countdownParticles, crystalGroup, surfaceParticles, textParticles, starField;
+        let memoryGroup; 
         let state = 'LOADING'; 
         let currentMode = 'GATHER'; 
+        let currentEditingId = null; 
         let clock = new THREE.Clock();
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -295,23 +327,27 @@
             setupScene();
             setupPostProcessing();
             setupLights();
+            createStarField(); 
             await loadAssets();
+            
             document.getElementById('start-btn').style.display = 'block';
             document.getElementById('start-btn').onclick = startExperience;
-            
-            // UI交互
             document.getElementById('upload-btn').onclick = () => document.getElementById('media-upload').click();
             document.getElementById('media-upload').onchange = handleUpload;
             document.getElementById('close-modal').onclick = closeModal;
+            document.getElementById('delete-btn').onclick = confirmDelete;
             document.getElementById('mode-gather').onclick = () => switchMode('GATHER');
             document.getElementById('mode-scatter').onclick = () => switchMode('SCATTER');
+            document.getElementById('fullscreen-btn').onclick = toggleFullScreen;
+            
             window.addEventListener('mousedown', onDocumentMouseDown);
+            animate();
         }
 
         function setupScene() {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 15, 30);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(0, 15, 80); 
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -321,17 +357,35 @@
 
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.autoRotate = false;
-
             window.addEventListener('resize', onWindowResize);
+        }
+
+        function createStarField() {
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(CONFIG.starCount * 3);
+            const colors = new Float32Array(CONFIG.starCount * 3);
+            for (let i = 0; i < CONFIG.starCount; i++) {
+                const r = 600 + Math.random() * 600;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                pos[i * 3 + 2] = r * Math.cos(phi);
+                const mix = Math.random();
+                if (mix > 0.9) { colors[i * 3] = 0.5; colors[i * 3 + 1] = 0.8; colors[i * 3 + 2] = 1; }
+                else if (mix > 0.8) { colors[i * 3] = 0.8; colors[i * 3 + 1] = 0.5; colors[i * 3 + 2] = 1; }
+                else { colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1; }
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            const mat = new THREE.PointsMaterial({ size: 1.2, vertexColors: true, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+            starField = new THREE.Points(geo, mat);
+            scene.add(starField);
         }
 
         function setupPostProcessing() {
             const renderScene = new RenderPass(scene, camera);
-            const bloomPass = new UnrealBloomPass(
-                new THREE.Vector2(window.innerWidth, window.innerHeight),
-                CONFIG.bloomStrength, 0.4, 0.85
-            );
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), CONFIG.bloomStrength, 0.4, 0.85);
             composer = new EffectComposer(renderer);
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
@@ -347,47 +401,20 @@
             scene.add(p2);
         }
 
-        // 倒计时数字逻辑
         function getNumberPoints(number) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = 128; canvas.height = 128;
+            canvas.width = 256; canvas.height = 256;
             ctx.fillStyle = 'white';
-            ctx.font = 'bold 100px Arial';
+            ctx.font = 'bold 200px Arial';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(number, 64, 64);
-            const imgData = ctx.getImageData(0, 0, 128, 128).data;
+            ctx.fillText(number, 128, 128);
+            const imgData = ctx.getImageData(0, 0, 256, 256).data;
             const points = [];
-            for (let y = 0; y < 128; y += 2) {
-                for (let x = 0; x < 128; x += 2) {
-                    if (imgData[(y * 128 + x) * 4] > 128) {
-                        points.push({ x: (x - 64) * 0.25, y: (64 - y) * 0.25, z: (Math.random() - 0.5) * 2 });
-                    }
-                }
-            }
-            return points;
-        }
-
-        function getPointsFromText(text, size = 1.0) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = 512; canvas.height = 128;
-            ctx.fillStyle = 'white';
-            ctx.font = `bold 60px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(text, 256, 64);
-            
-            const imgData = ctx.getImageData(0, 0, 512, 128).data;
-            const points = [];
-            for (let y = 0; y < 128; y += 2) {
-                for (let x = 0; x < 512; x += 2) {
-                    if (imgData[(y * 512 + x) * 4] > 128) {
-                        points.push({ 
-                            x: (x - 256) * 0.05 * size, 
-                            y: (64 - y) * 0.05 * size, 
-                            z: (Math.random() - 0.5) * 0.4 
-                        });
+            for (let y = 0; y < 256; y += 8) {
+                for (let x = 0; x < 256; x += 8) {
+                    if (imgData[(y * 256 + x) * 4] > 128) {
+                        points.push({ x: (x - 128) * 0.22, y: (128 - y) * 0.22, z: (Math.random() - 0.5) * 3 });
                     }
                 }
             }
@@ -399,14 +426,14 @@
             const positions = new Float32Array(CONFIG.particleCount * 3);
             const colors = new Float32Array(CONFIG.particleCount * 3);
             for (let i = 0; i < CONFIG.particleCount; i++) {
-                positions[i * 3] = (Math.random() - 0.5) * 150;
-                positions[i * 3 + 1] = (Math.random() - 0.5) * 150;
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 150;
-                colors[i * 3] = 0; colors[i * 3 + 1] = 0.95; colors[i * 3 + 2] = 1;
+                positions[i * 3] = (Math.random() - 0.5) * 1000;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 1000;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 1000;
+                colors[i * 3] = 0.2; colors[i * 3 + 1] = 0.8; colors[i * 3 + 2] = 1;
             }
             geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            const mat = new THREE.PointsMaterial({ size: 0.12, vertexColors: true, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending });
+            const mat = new THREE.PointsMaterial({ size: 0.35, vertexColors: true, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
             countdownParticles = new THREE.Points(geo, mat);
             scene.add(countdownParticles);
         }
@@ -415,40 +442,52 @@
             createCountdownParticles();
             const status = document.getElementById('status-display');
             status.style.opacity = '1';
+            
+            // 修改点：倒计时从 5 开始
             for (let i = 5; i >= 1; i--) {
-                status.innerText = `LINKING... ${i}`;
+                status.innerText = "";
                 const targetPoints = getNumberPoints(i.toString()); 
-                morphParticles(targetPoints);
-                await new Promise(r => setTimeout(r, 1200));
+                await morphCountdownParticles(targetPoints);
+                await new Promise(r => setTimeout(r, 600)); 
+                if(i > 1) await explodeCountdownParticles();
             }
-            status.innerText = "HAPPY BIRTHDAY AWAKENING";
+            
+            status.innerText = "";
             warpSpeedTransition();
         }
 
-        function morphParticles(targetPoints) {
-            const positions = countdownParticles.geometry.attributes.position.array;
-            for (let i = 0; i < CONFIG.particleCount; i++) {
-                const target = targetPoints[i % targetPoints.length];
-                new TWEEN.Tween(positions)
-                    .to({ [i * 3]: target.x + (Math.random() - 0.5) * 0.3, [i * 3 + 1]: target.y + (Math.random() - 0.5) * 0.3, [i * 3 + 2]: target.z }, 800)
-                    .easing(TWEEN.Easing.Quadratic.InOut)
-                    .onUpdate(() => { countdownParticles.geometry.attributes.position.needsUpdate = true; })
-                    .start();
-            }
+        function explodeCountdownParticles() {
+            return new Promise(resolve => {
+                const positions = countdownParticles.geometry.attributes.position.array;
+                const duration = 500;
+                for (let i = 0; i < CONFIG.particleCount; i++) {
+                    new TWEEN.Tween(positions).to({ [i * 3]: (Math.random() - 0.5) * 800, [i * 3 + 1]: (Math.random() - 0.5) * 800, [i * 3 + 2]: (Math.random() - 0.5) * 800 }, duration).easing(TWEEN.Easing.Exponential.Out).onUpdate(() => { countdownParticles.geometry.attributes.position.needsUpdate = true; }).start();
+                }
+                setTimeout(resolve, duration);
+            });
+        }
+
+        function morphCountdownParticles(targetPoints) {
+            return new Promise(resolve => {
+                const positions = countdownParticles.geometry.attributes.position.array;
+                const duration = 1200;
+                for (let i = 0; i < CONFIG.particleCount; i++) {
+                    const target = targetPoints[i % targetPoints.length];
+                    new TWEEN.Tween(positions).to({ [i * 3]: target.x + (Math.random()-0.5)*1.2, [i * 3 + 1]: target.y + (Math.random()-0.5)*1.2, [i * 3 + 2]: target.z }, duration).easing(TWEEN.Easing.Quintic.Out).onUpdate(() => { countdownParticles.geometry.attributes.position.needsUpdate = true; }).start();
+                }
+                setTimeout(resolve, duration);
+            });
         }
 
         function warpSpeedTransition() {
             const positions = countdownParticles.geometry.attributes.position.array;
             for (let i = 0; i < CONFIG.particleCount; i++) {
-                new TWEEN.Tween(positions)
-                    .to({ [i * 3]: positions[i * 3] * 6, [i * 3 + 1]: positions[i * 3 + 1] * 6, [i * 3 + 2]: -600 }, 1500)
-                    .easing(TWEEN.Easing.Quadratic.In).start();
+                new TWEEN.Tween(positions).to({ [i * 3]: positions[i * 3] * 20, [i * 3 + 1]: positions[i * 3 + 1] * 20, [i * 3 + 2]: -1500 }, 1800).easing(TWEEN.Easing.Quadratic.In).start();
             }
-            new TWEEN.Tween(camera.position).to({ z: 25, y: 12 }, 2000).easing(TWEEN.Easing.Exponential.Out)
-                .onComplete(() => { scene.remove(countdownParticles); initMainScene(); }).start();
+            new TWEEN.Tween(camera.position).to({ z: 25, y: 12 }, 2000).easing(TWEEN.Easing.Exponential.Out).onComplete(() => { scene.remove(countdownParticles); initMainScene(); }).start();
         }
 
-        function initMainScene() {
+        async function initMainScene() {
             state = 'MAIN';
             crystalGroup = new THREE.Group();
             scene.add(crystalGroup);
@@ -456,112 +495,109 @@
             scene.add(memoryGroup);
             controls.autoRotate = true;
 
-            const geometries = [new THREE.OctahedronGeometry(0.5), new THREE.IcosahedronGeometry(0.4)];
-
             createSurfaceParticles();
             createParticleText(); 
 
+            const geometries = [new THREE.OctahedronGeometry(0.5), new THREE.IcosahedronGeometry(0.4)];
             for(let i=0; i<CONFIG.crystalCount; i++) {
                 const geo = geometries[Math.floor(Math.random() * geometries.length)];
                 const h = 0.55 + Math.random() * 0.15;
                 const color = new THREE.Color().setHSL(h, 0.8, 0.5);
-                
-                const mat = new THREE.MeshPhysicalMaterial({
-                    color: color, metalness: 0.4, roughness: 0.05, transmission: 0.85,
-                    transparent: true, opacity: 1, emissive: color, emissiveIntensity: 0.2
-                });
-
+                const mat = new THREE.MeshPhysicalMaterial({ color: color, metalness: 0.4, roughness: 0.05, transmission: 0.85, transparent: true, opacity: 1, emissive: color, emissiveIntensity: 0.2 });
                 const mesh = new THREE.Mesh(geo, mat);
-                
                 const isBottomLayer = i < CONFIG.crystalCount * 0.65;
                 const radiusLimit = isBottomLayer ? 6 : 3.5;
                 const angle = Math.random() * Math.PI * 2;
                 const dist = Math.sqrt(Math.random()) * radiusLimit; 
                 const y = isBottomLayer ? -3 + Math.random() * 3 : 1 + Math.random() * 3;
-                
                 mesh.userData.targetPos = new THREE.Vector3(Math.cos(angle) * dist, y, Math.sin(angle) * dist);
                 mesh.userData.scatterPos = new THREE.Vector3((Math.random()-0.5)*50, (Math.random()-0.5)*50, (Math.random()-0.5)*50);
                 mesh.userData.pulseOffset = Math.random() * Math.PI * 2;
-
                 mesh.position.set(0,0,0);
                 crystalGroup.add(mesh);
             }
+
+            const savedPhotos = await getAllPhotosFromDB();
+            savedPhotos.forEach(p => createMemoryFragment(p.data, p.id));
 
             switchMode('GATHER');
             initHandTracking();
         }
 
-        // 处理文件上传
-        function handleUpload(event) {
+        async function handleUpload(event) {
             const files = event.target.files;
             if (!files.length) return;
-
-            Array.from(files).forEach(file => {
+            for (let file of Array.from(files)) {
                 const reader = new FileReader();
-                reader.onload = (e) => {
-                    createMemoryFragment(e.target.result);
+                reader.onload = async (e) => {
+                    const base64 = e.target.result;
+                    const dbId = await savePhotoToDB(base64);
+                    createMemoryFragment(base64, dbId);
                 };
                 reader.readAsDataURL(file);
-            });
-            
-            document.getElementById('status-display').innerText = `已导入 ${files.length} 个记忆碎片`;
-            setTimeout(() => { if(state === 'MAIN') document.getElementById('status-display').innerText = ""; }, 2000);
+            }
+            document.getElementById('status-display').innerText = `已永久存入 ${files.length} 个记忆碎片`;
+            setTimeout(() => { if(state === 'MAIN') document.getElementById('status-display').innerText = ""; }, 3000);
         }
 
-        function createMemoryFragment(imgSrc) {
+        function createMemoryFragment(imgSrc, dbId) {
             const loader = new THREE.TextureLoader();
             loader.load(imgSrc, (texture) => {
-                // 水晶边框材质 + 照片材质
                 const geo = new THREE.BoxGeometry(2, 2, 0.2);
                 const mats = [
                     new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
                     new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
                     new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
                     new THREE.MeshStandardMaterial({ color: CONFIG.primaryColor, transparent: true, opacity: 0.8 }),
-                    new THREE.MeshStandardMaterial({ map: texture }), // 正面
-                    new THREE.MeshStandardMaterial({ map: texture }), // 反面
+                    new THREE.MeshStandardMaterial({ map: texture }),
+                    new THREE.MeshStandardMaterial({ map: texture }),
                 ];
-
                 const mesh = new THREE.Mesh(geo, mats);
-                mesh.userData.isMemory = true;
+                mesh.userData.isMemory = true; 
                 mesh.userData.imgSrc = imgSrc;
+                mesh.userData.dbId = dbId;
                 
-                // 初始位置在蛋糕中心
-                mesh.position.set(0, 5, 0);
+                mesh.position.set(0, 5, 0); 
                 mesh.scale.set(0.1, 0.1, 0.1);
                 
-                // 设置星云模式下的目标位置
                 const angle = Math.random() * Math.PI * 2;
                 const dist = 10 + Math.random() * 15;
                 const y = (Math.random() - 0.5) * 20;
                 mesh.userData.scatterPos = new THREE.Vector3(Math.cos(angle) * dist, y, Math.sin(angle) * dist);
-                
-                // 设置聚合模式下的目标位置（藏在蛋糕深处或作为装饰）
                 mesh.userData.gatherPos = new THREE.Vector3((Math.random()-0.5)*4, 1 + Math.random()*4, (Math.random()-0.5)*4);
                 
                 memoryGroup.add(mesh);
-
-                // 动画入场
+                
                 const target = currentMode === 'GATHER' ? mesh.userData.gatherPos : mesh.userData.scatterPos;
                 const targetScale = currentMode === 'GATHER' ? 0.3 : 1.5;
-                
                 new TWEEN.Tween(mesh.position).to({ x: target.x, y: target.y, z: target.z }, 2000).easing(TWEEN.Easing.Elastic.Out).start();
                 new TWEEN.Tween(mesh.scale).to({ x: targetScale, y: targetScale, z: targetScale }, 2000).easing(TWEEN.Easing.Elastic.Out).start();
             });
         }
 
+        function confirmDelete() {
+            if (currentEditingId === null) return;
+            const confirmMsg = "确定从浏览器本地存储中永久删除此回忆吗？";
+            if (confirm(confirmMsg)) {
+                deletePhotoFromDB(currentEditingId);
+                const meshToDelete = memoryGroup.children.find(m => m.userData.dbId === currentEditingId);
+                if (meshToDelete) {
+                    new TWEEN.Tween(meshToDelete.scale).to({x:0, y:0, z:0}, 500).onComplete(() => memoryGroup.remove(meshToDelete)).start();
+                }
+                closeModal();
+            }
+        }
+
         function onDocumentMouseDown(event) {
             if (currentMode !== 'SCATTER') return;
-            
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(memoryGroup.children);
-            
             if (intersects.length > 0) {
                 const clicked = intersects[0].object;
                 if (clicked.userData.isMemory) {
+                    currentEditingId = clicked.userData.dbId;
                     showPhotoModal(clicked.userData.imgSrc, clicked.position);
                 }
             }
@@ -569,53 +605,54 @@
 
         function showPhotoModal(src, pos) {
             const modal = document.getElementById('photo-modal');
-            const img = document.getElementById('modal-img');
-            img.src = src;
+            document.getElementById('modal-img').src = src;
             modal.classList.add('active');
-            
-            // 相机平滑聚焦
-            new TWEEN.Tween(camera.position)
-                .to({ x: pos.x * 1.5, y: pos.y, z: pos.z * 1.5 }, 1000)
-                .easing(TWEEN.Easing.Quadratic.InOut)
-                .start();
-            
-            new TWEEN.Tween(controls.target)
-                .to({ x: pos.x, y: pos.y, z: pos.z }, 1000)
-                .easing(TWEEN.Easing.Quadratic.InOut)
-                .start();
+            new TWEEN.Tween(camera.position).to({ x: pos.x * 1.5, y: pos.y, z: pos.z * 1.5 }, 1000).easing(TWEEN.Easing.Quadratic.InOut).start();
+            new TWEEN.Tween(controls.target).to({ x: pos.x, y: pos.y, z: pos.z }, 1000).easing(TWEEN.Easing.Quadratic.InOut).start();
         }
 
         function closeModal() {
             document.getElementById('photo-modal').classList.remove('active');
-            // 回归视角
+            currentEditingId = null;
             new TWEEN.Tween(controls.target).to({ x: 0, y: 0, z: 0 }, 1000).start();
         }
 
+        function getPointsFromText(text, size = 1.0) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 1024; canvas.height = 256;
+            ctx.fillStyle = 'white'; 
+            ctx.font = `bold 100px "Microsoft YaHei", "Arial", sans-serif`; 
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const points = [];
+            const step = 2; 
+            for (let y = 0; y < canvas.height; y += step) {
+                for (let x = 0; x < canvas.width; x += step) {
+                    if (imgData[(y * canvas.width + x) * 4] > 180) {
+                        points.push({ x: (x - canvas.width / 2) * 0.04 * size, y: (canvas.height / 2 - y) * 0.04 * size, z: (Math.random() - 0.5) * 0.5 });
+                    }
+                }
+            }
+            return points.length > CONFIG.textParticleCount ? points.sort(() => Math.random() - 0.5).slice(0, CONFIG.textParticleCount) : points;
+        }
+
         function createParticleText() {
-            const textData = getPointsFromText("HAPPY BIRTHDAY", 1.6);
+            const text = "HAPPY BIRTHDAY";
+            const textData = getPointsFromText(text, 0.9);
             const count = CONFIG.textParticleCount;
             const geo = new THREE.BufferGeometry();
             const pos = new Float32Array(count * 3);
             const targets = new Float32Array(count * 3);
-            
             for(let i=0; i<count; i++) {
                 const t = textData[i % textData.length];
-                targets[i*3] = t.x;
-                targets[i*3+1] = t.y + 7.5; 
-                targets[i*3+2] = t.z;
-                
-                pos[i*3] = (Math.random()-0.5)*100;
-                pos[i*3+1] = (Math.random()-0.5)*100;
-                pos[i*3+2] = (Math.random()-0.5)*100;
+                targets[i*3] = t.x; targets[i*3+1] = t.y + 9.5; targets[i*3+2] = t.z;
+                pos[i*3] = (Math.random()-0.5)*100; pos[i*3+1] = (Math.random()-0.5)*100; pos[i*3+2] = (Math.random()-0.5)*100;
             }
-            
             geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
             geo.setAttribute('targetPos', new THREE.BufferAttribute(targets, 3));
-            
-            const mat = new THREE.PointsMaterial({
-                size: 0.08, color: 0x00f3ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending
-            });
-            
+            const mat = new THREE.PointsMaterial({ size: 0.12, color: 0x00f3ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending });
             textParticles = new THREE.Points(geo, mat);
             scene.add(textParticles);
         }
@@ -625,48 +662,35 @@
             const pos = new Float32Array(CONFIG.surfaceParticleCount * 3);
             const targets = new Float32Array(CONFIG.surfaceParticleCount * 3);
             const phases = new Float32Array(CONFIG.surfaceParticleCount);
-            
             for(let i=0; i<CONFIG.surfaceParticleCount; i++) {
                 const isBottom = Math.random() > 0.4;
                 const rBase = isBottom ? 6.2 : 3.8;
                 const r = rBase + (Math.random() - 0.5) * 0.4;
                 const yRange = isBottom ? [-3, 0.5] : [0.5, 4.5];
                 const angle = Math.random() * Math.PI * 2;
-                const isTopSurface = Math.random() > 0.65;
-                
                 let x, y, z;
-                if(isTopSurface) {
+                if(Math.random() > 0.65) {
                     const rr = Math.sqrt(Math.random()) * r;
                     x = Math.cos(angle) * rr; y = yRange[1] + (Math.random() - 0.5) * 0.2; z = Math.sin(angle) * rr;
                 } else {
                     x = Math.cos(angle) * r; y = yRange[0] + Math.random() * (yRange[1] - yRange[0]); z = Math.sin(angle) * r;
                 }
-                
                 targets[i*3] = x; targets[i*3+1] = y; targets[i*3+2] = z;
                 pos[i*3] = (Math.random()-0.5)*80; pos[i*3+1] = (Math.random()-0.5)*80; pos[i*3+2] = (Math.random()-0.5)*80;
                 phases[i] = Math.random() * Math.PI * 2;
             }
-            
             geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
             geo.setAttribute('targetPos', new THREE.BufferAttribute(targets, 3));
             geo.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
-            
-            const mat = new THREE.PointsMaterial({
-                size: 0.06, color: CONFIG.primaryColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false
-            });
-            
+            const mat = new THREE.PointsMaterial({ size: 0.08, color: CONFIG.primaryColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
             surfaceParticles = new THREE.Points(geo, mat);
             scene.add(surfaceParticles);
         }
 
         function switchMode(mode) {
             currentMode = mode;
-            document.getElementById('status-display').innerText = mode === 'GATHER' ? "形态：水晶生日蛋糕" : "形态：水晶星云";
-            
             new TWEEN.Tween(surfaceParticles.material).to(mode === 'GATHER' ? {opacity: 1.0} : {opacity: 0}, 1200).start();
             new TWEEN.Tween(textParticles.material).to(mode === 'GATHER' ? {opacity: 1.0} : {opacity: 0}, 1200).start();
-
-            // 移动主要粒子
             [surfaceParticles, textParticles].forEach(pSystem => {
                 const pos = pSystem.geometry.attributes.position.array;
                 const targets = pSystem.geometry.attributes.targetPos.array;
@@ -679,16 +703,12 @@
                     new TWEEN.Tween(pos).to({ [bi]: tx, [bi+1]: ty, [bi+2]: tz }, 1500 + Math.random()*800).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => pSystem.geometry.attributes.position.needsUpdate = true).start();
                 }
             });
-
-            // 移动基础结晶
             crystalGroup.children.forEach(mesh => {
                 const targetPos = mode === 'GATHER' ? mesh.userData.targetPos : mesh.userData.scatterPos;
                 const targetScale = mode === 'GATHER' ? 0.25 : 1.0;
                 new TWEEN.Tween(mesh.position).to({ x: targetPos.x, y: targetPos.y, z: targetPos.z }, 1500).easing(TWEEN.Easing.Quadratic.InOut).start();
                 new TWEEN.Tween(mesh.scale).to({ x: targetScale, y: targetScale, z: targetScale }, 1200).easing(TWEEN.Easing.Back.Out).start();
             });
-
-            // 移动记忆碎片
             memoryGroup.children.forEach(mesh => {
                 const targetPos = mode === 'GATHER' ? mesh.userData.gatherPos : mesh.userData.scatterPos;
                 const targetScale = mode === 'GATHER' ? 0.3 : 1.5;
@@ -699,15 +719,17 @@
 
         async function loadAssets() {
             const progress = document.getElementById('progress');
-            for(let i=0; i<=100; i+=10) {
-                progress.style.width = i + '%';
-                await new Promise(r => setTimeout(r, 20));
-            }
+            for(let i=0; i<=100; i+=10) { progress.style.width = i + '%'; await new Promise(r => setTimeout(r, 50)); }
         }
 
         function startExperience() {
             document.getElementById('loading-screen').style.opacity = '0';
             setTimeout(() => { document.getElementById('loading-screen').remove(); animateCountdown(); }, 1000);
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else if (document.exitFullscreen) document.exitFullscreen();
         }
 
         async function initHandTracking() {
@@ -748,43 +770,44 @@
             const time = clock.getElapsedTime();
             TWEEN.update();
             controls.update();
-
+            if (starField) { starField.rotation.y += 0.0002; starField.rotation.x += 0.0001; }
             if (state === 'MAIN') {
-                // 文字粒子抖动
                 if (textParticles && currentMode === 'GATHER') {
                     const pos = textParticles.geometry.attributes.position.array;
                     for(let i=0; i<CONFIG.textParticleCount; i++) {
-                        pos[i*3] += (Math.random()-0.5)*0.01;
-                        pos[i*3+1] += (Math.random()-0.5)*0.01;
-                        pos[i*3+2] += (Math.random()-0.5)*0.01;
+                        pos[i*3] += (Math.random()-0.5)*0.01; pos[i*3+1] += (Math.random()-0.5)*0.01; pos[i*3+2] += (Math.random()-0.5)*0.01;
                     }
                     textParticles.geometry.attributes.position.needsUpdate = true;
                 }
-
-                // 记忆碎片漂浮
+                if (surfaceParticles && currentMode === 'GATHER') {
+                    const pos = surfaceParticles.geometry.attributes.position.array;
+                    const targets = surfaceParticles.geometry.attributes.targetPos.array;
+                    const phases = surfaceParticles.geometry.attributes.phase.array;
+                    for(let i=0; i<CONFIG.surfaceParticleCount; i++) {
+                        const bi = i * 3; const p = phases[i];
+                        pos[bi] = targets[bi] + Math.sin(time * 0.4 + p) * 0.15;
+                        pos[bi+1] = targets[bi+1] + Math.cos(time * 0.32 + p) * 0.25;
+                        pos[bi+2] = targets[bi+2] + Math.cos(time * 0.4 + p) * 0.15;
+                    }
+                    surfaceParticles.geometry.attributes.position.needsUpdate = true;
+                }
                 memoryGroup.children.forEach((mesh, idx) => {
                     if (currentMode === 'SCATTER') {
                         mesh.position.y += Math.sin(time + idx) * 0.01;
                         mesh.rotation.y += 0.005;
-                    } else {
-                        mesh.rotation.y += 0.01;
-                    }
+                    } else { mesh.rotation.y += 0.01; }
                 });
-
                 crystalGroup.children.forEach((mesh) => {
                     if (currentMode === 'GATHER') {
                         const pulse = Math.sin(time * 3 + mesh.userData.pulseOffset) * 0.5 + 0.5;
                         mesh.material.emissiveIntensity = 0.6 + pulse * 2.0;
-                    } else {
-                        mesh.rotation.x += 0.008; mesh.rotation.y += 0.012;
-                    }
+                    } else { mesh.rotation.x += 0.008; mesh.rotation.y += 0.012; }
                 });
             }
             composer.render();
         }
 
         init();
-        animate();
     </script>
 </body>
 </html>
